@@ -33,14 +33,16 @@ def get_user_info(user_id):
             user_info[key] = value
     else:
         return False
-    # print(user_info)
+    #print(user_info)
     return user_info
 
 
-def get_suitable_pairs(user_id):
+def get_age(user_id):
     user_info = get_user_info(user_id)
-    user_age = datetime.datetime.now().year - int(user_info[0][-4])
-    print(user_age)
+    if 'bdate' in user_info.keys() and user_info['bdate'].count('.') == 2:
+        return datetime.datetime.now().year - int(user_info['bdate'][-4:])
+    else:
+        return 'Неизвестна точная дата рождения!'
 
 
 def main():
