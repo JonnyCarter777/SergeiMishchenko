@@ -6,6 +6,7 @@ import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
 from sql import insert_user_into_db, insert_match_into_db, check_db_link, create_db_link
 
+
 with open('bot_token.txt', 'r') as file:
     bot_token = file.readline()
 with open('app_token.txt', 'r') as file:
@@ -16,13 +17,6 @@ vk_session = vk_api.VkApi(token=bot_token)
 longpoll = VkLongPoll(vk_session)
 
 
-def write_msg(user_id, message, attachment='0'):
-    vk_session.method('messages.send', {'user_id': user_id,
-                                        'message': message,
-                                        'random_id': randrange(10 ** 7),
-                                        'attachment': attachment})
-
-
 def get_user_info(user_id):
     """Takes user_id as an integer, returns user_info as a dictionary"""
     user_info = {}
@@ -31,7 +25,7 @@ def get_user_info(user_id):
         'user_ids': user_id,
         'access_token': app_token,
         'v': 5.131,
-        'fields': 'first_name, last_name, bdate, sex, city, movies, music'
+        'fields': 'first_name, last_name, bdate, sex, city'
     }
     if requests.get(url, params=params).json().get('response'):
         for key, value in requests.get(url, params=params).json().get('response')[0].items():
@@ -40,19 +34,64 @@ def get_user_info(user_id):
             else:
                 user_info[key] = value
     else:
+        write_msg(user_id, f'''Извините, что-то пошло не так.''')
         return False
     return user_info
+
+
+def write_msg(user_id, message, attachment='0'):
+    vk_session.method('messages.send', {'user_id': user_id,
+                                        'message': message,
+                                        'random_id': randrange(10 ** 7),
+                                        'attachment': attachment})
 
 
 def check_user_info_missing(user_info):
     """Takes user_info as a dictionary, returns keys missing in user_info as a list"""
     info_missing = []
-    for item in ['bdate', 'sex', 'city', 'movies', 'music']:
+    for item in ['bdate', 'sex', 'city']:
         if not user_info.get(item):
             info_missing.append(item)
-        if user_info['bdate'].count('.') != 2:
-            info_missing.append('bdate')
+    if user_info['bdate'].count('.') != 2:
+        info_missing.append('bdate')
     return info_missing
+
+
+def get_additional_information(user_id, field):
+    """Takes user_id as an integer to send a message and a field to require as a string,
+    returns an answer as a string """
+    write_msg(user_id, f'''Пожалуйста, сообщите следующие данные о себе:\n{translate_field(field)}''')
+    for event in longpoll.listen():
+        if event.type == VkEventType.MESSAGE_NEW:
+            if event.to_me:
+                if field == 'city':
+                    return get_city_id(user_id, event.text)
+                elif field == 'bdate':
+                    if event.text.count('.') != 2 or '.' in event.text[-4:]:
+                        write_msg(user_id, 'Неверный формат даты! Попробуйте ещё')
+                        return False
+                    return event.text
+                elif field == 'sex':
+                    return int(event.text)
+
+
+def get_city_id(user_id, city):
+    """Takes user_id as an integer to send a message if not success and a city as a string,
+    returns city_id as an integer"""
+    url = 'https://api.vk.com/method/database.getCities'
+    params = {
+        'access_token': app_token,
+        'v': 5.131,
+        'q': city
+    }
+    if requests.get(url, params=params).json().get('response'):
+        if requests.get(url, params=params).json().get('response').get('items'):
+            city_id = requests.get(url, params=params).json().get('response').get('items')[0].get('id')
+            return city_id
+        write_msg(user_id, 'К сожалению, мы не нашли такого города...')
+        return False
+    write_msg(user_id, 'Упс, что-то пошло не так...')
+    return False
 
 
 def translate_field(field):
@@ -60,9 +99,7 @@ def translate_field(field):
     dictionary = {
         'bdate': 'ваша дата рождения в формате xx.xx.xxxx',
         'sex': 'ваш пол (1 - женский, 2 - мужской)',
-        'city': 'ваш город',
-        'movies': 'ваш любимый фильм',
-        'music': 'ваша любимая музыка'
+        'city': 'ваш город'
     }
     translation = dictionary[field]
     return translation
@@ -74,16 +111,6 @@ def get_age(date):
     return datetime.datetime.now().year - int(date[-4:])
 
 
-def get_additional_information(user_id, field):
-    """Takes user_id as a dictionary to send a message and a field to require as a string,
-    returns an answer as a string """
-    write_msg(user_id, f'''Пожалуйста, сообщите следующие данные о себе:\n{translate_field(field)}''')
-    for event in longpoll.listen():
-        if event.type == VkEventType.MESSAGE_NEW:
-            if event.to_me:
-                return event.text
-
-
 def find_matches(user_info):
     """Takes user_info as a dictionary, returns other users infos as a list of dictionaries"""
     url = 'https://api.vk.com/method/users.search'
@@ -92,6 +119,7 @@ def find_matches(user_info):
         'age_to': user_info['age'] + 3,
         'sex': 3 - user_info['sex'],
         'city': user_info['city'],
+        'city_id': user_info['city'],
         'status': 6,
         'has_photo': 1,
         'count': 1000,
@@ -100,6 +128,8 @@ def find_matches(user_info):
     }
     if requests.get(url, params=params).json().get('response'):
         return requests.get(url, params=params).json().get('response').get('items')
+    write_msg(user_info[id], 'Упс, что-то пошло не так')
+    return False
 
 
 def choose_match(matches, user_id):
@@ -145,12 +175,15 @@ def main():
         if event.type == VkEventType.MESSAGE_NEW:
             if event.to_me:
                 user_info = get_user_info(event.user_id)
+                if not user_info:
+                    continue
                 write_msg(event.user_id, f'''Привет, {user_info['first_name']}!
-Подберём вам пару через VKinder?
-Сейчас проверим, достаточно ли мы о вас знаем.''')
+Подберём вам пару через VKinder?''')
                 info_missing = check_user_info_missing(user_info)
                 while info_missing:
                     additional_info = get_additional_information(event.user_id, info_missing[0])
+                    if not additional_info:
+                        continue
                     user_info[info_missing[0]] = additional_info
                     info_missing.pop(0)
                 user_info['age'] = get_age(user_info['bdate'])
@@ -158,6 +191,9 @@ def main():
                 write_msg(event.user_id, '''Информации о вас достаточно :)
 Начинаем подбирать пары...''')
                 matches_found = find_matches(user_info)
+                if not matches_found:
+                    write_msg(event.user_id, 'Упс, мы никого не нашли')
+                    continue
                 match_found = choose_match(matches_found, event.user_id)
                 photo_data = get_photos(match_found['id'])
                 insert_match_into_db(match_found, photo_data)
