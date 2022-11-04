@@ -194,16 +194,24 @@ def main():
                 if not matches_found:
                     write_msg(event.user_id, 'Упс, мы никого не нашли')
                     continue
-                match_found = choose_match(matches_found, event.user_id)
-                photo_data = get_photos(match_found['id'])
-                insert_match_into_db(match_found, photo_data)
-                create_db_link(match_found, event.user_id)
-                write_msg(event.user_id,
-                          f'''Мы нашли возможную пару: {match_found['first_name']} {match_found['last_name']}
+                approval = '+'
+                while approval.lower() in ['+', 'да']:
+                    match_found = choose_match(matches_found, event.user_id)
+                    photo_data = get_photos(match_found['id'])
+                    insert_match_into_db(match_found, photo_data)
+                    create_db_link(match_found, event.user_id)
+                    write_msg(event.user_id,
+                              f'''Мы нашли возможную пару: {match_found['first_name']} {match_found['last_name']}
 Вы можете найти этого пользователя по ссылке: vk.com/id{match_found['id']}''',
-                          attachment=f"photo{photo_data['user_id']}_{photo_data['photo_ids'][0]},"
-                                     f"photo{photo_data['user_id']}_{photo_data['photo_ids'][1]},"
-                                     f"photo{photo_data['user_id']}_{photo_data['photo_ids'][2]}")
+                              attachment=f"photo{photo_data['user_id']}_{photo_data['photo_ids'][0]},"
+                                         f"photo{photo_data['user_id']}_{photo_data['photo_ids'][1]},"
+                                         f"photo{photo_data['user_id']}_{photo_data['photo_ids'][2]}")
+                    write_msg(event.user_id, 'Показать ещё?\nСтавьте плюсик или \"да\"')
+                    for new_event in longpoll.listen():
+                        if new_event.type == VkEventType.MESSAGE_NEW:
+                            if new_event.to_me:
+                                approval = new_event.text
+                                break
 
 
 if __name__ == '__main__':
