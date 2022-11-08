@@ -4,7 +4,7 @@ import datetime
 import requests
 import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
-from sql import insert_user_into_db, insert_match_into_db, check_db_link, create_db_link
+from sql import insert_user_into_db, insert_match_into_db, check_db_link, create_db_link, create_db, create_tables
 
 
 with open('bot_token.txt', 'r') as file:
@@ -19,16 +19,13 @@ longpoll = VkLongPoll(vk_session)
 
 def get_user_info(user_id):
     """Takes user_id as an integer, returns user_info as a dictionary"""
+    response = vk_session.method('users.get', {'user_id': user_id,
+                                               'access_token': app_token,
+                                               'v': 5.131,
+                                               'fields': 'first_name, last_name, bdate, sex, city'})
     user_info = {}
-    url = 'https://api.vk.com/method/users.get'
-    params = {
-        'user_ids': user_id,
-        'access_token': app_token,
-        'v': 5.131,
-        'fields': 'first_name, last_name, bdate, sex, city'
-    }
-    if requests.get(url, params=params).json().get('response'):
-        for key, value in requests.get(url, params=params).json().get('response')[0].items():
+    if response:
+        for key, value in response[0].items():
             if key == 'city':
                 user_info[key] = value['id']
             else:
@@ -37,6 +34,24 @@ def get_user_info(user_id):
         write_msg(user_id, f'''Извините, что-то пошло не так.''')
         return False
     return user_info
+
+    # url = 'https://api.vk.com/method/users.get'
+    # params = {
+    #     'user_ids': user_id,
+    #     'access_token': app_token,
+    #     'v': 5.131,
+    #     'fields': 'first_name, last_name, bdate, sex, city'
+    # }
+    # if requests.get(url, params=params).json().get('response'):
+    #     for key, value in requests.get(url, params=params).json().get('response')[0].items():
+    #         if key == 'city':
+    #             user_info[key] = value['id']
+    #         else:
+    #             user_info[key] = value
+    # else:
+    #     write_msg(user_id, f'''Извините, что-то пошло не так.''')
+    #     return False
+    # return user_info
 
 
 def write_msg(user_id, message, attachment='0'):
@@ -171,6 +186,8 @@ def get_photos(user_id):
 
 
 def main():
+    create_db()
+    create_tables()
     for event in longpoll.listen():
         if event.type == VkEventType.MESSAGE_NEW:
             if event.to_me:
