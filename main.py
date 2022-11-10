@@ -1,7 +1,6 @@
 import random
 from random import randrange
 import datetime
-import requests
 import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
 from sql import insert_user_into_db, insert_match_into_db, check_db_link, create_db_link, create_db, create_tables
