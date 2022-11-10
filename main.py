@@ -14,44 +14,32 @@ with open('app_token.txt', 'r') as file:
 
 
 vk_session = vk_api.VkApi(token=bot_token)
+vk_session2 = vk_api.VkApi(token=app_token)
 longpoll = VkLongPoll(vk_session)
 
 
 def get_user_info(user_id):
     """Takes user_id as an integer, returns user_info as a dictionary"""
-    response = vk_session.method('users.get', {'user_id': user_id,
-                                               'access_token': app_token,
-                                               'v': 5.131,
-                                               'fields': 'first_name, last_name, bdate, sex, city'})
     user_info = {}
-    if response:
-        for key, value in response[0].items():
-            if key == 'city':
-                user_info[key] = value['id']
-            else:
-                user_info[key] = value
-    else:
-        write_msg(user_id, f'''Извините, что-то пошло не так.''')
-        return False
-    return user_info
+    try:
+        response = vk_session.method('users.get', {'user_id': user_id,
+                                                   'v': 5.131,
+                                                   'fields': 'first_name, last_name, bdate, sex, city'})
+        if response:
+            for key, value in response[0].items():
+                # если response не пустой, то [0] по-любому есть(?)
+                if key == 'city':
+                    user_info[key] = value['id']
+                else:
+                    user_info[key] = value
+        else:
+            write_msg(user_id, f'''Извините, что-то пошло не так.''')
+            return False
 
-    # url = 'https://api.vk.com/method/users.get'
-    # params = {
-    #     'user_ids': user_id,
-    #     'access_token': app_token,
-    #     'v': 5.131,
-    #     'fields': 'first_name, last_name, bdate, sex, city'
-    # }
-    # if requests.get(url, params=params).json().get('response'):
-    #     for key, value in requests.get(url, params=params).json().get('response')[0].items():
-    #         if key == 'city':
-    #             user_info[key] = value['id']
-    #         else:
-    #             user_info[key] = value
-    # else:
-    #     write_msg(user_id, f'''Извините, что-то пошло не так.''')
-    #     return False
-    # return user_info
+    except vk_api.exceptions.ApiError as e:
+        write_msg(user_id, f'''Извините, что-то пошло не так.''')
+        print(f'Error! {e}')
+    return user_info
 
 
 def write_msg(user_id, message, attachment='0'):
@@ -93,20 +81,20 @@ def get_additional_information(user_id, field):
 def get_city_id(user_id, city):
     """Takes user_id as an integer to send a message if not success and a city as a string,
     returns city_id as an integer"""
-    url = 'https://api.vk.com/method/database.getCities'
-    params = {
-        'access_token': app_token,
-        'v': 5.131,
-        'q': city
-    }
-    if requests.get(url, params=params).json().get('response'):
-        if requests.get(url, params=params).json().get('response').get('items'):
-            city_id = requests.get(url, params=params).json().get('response').get('items')[0].get('id')
-            return city_id
-        write_msg(user_id, 'К сожалению, мы не нашли такого города...')
+    try:
+        response = vk_session.method('database.getCities', {'v': 5.131,
+                                                            'q': city})
+        if response:
+            if response.get('items'):
+                city_id = response.get('items')[0].get('id')
+                return city_id
+            write_msg(user_id, 'К сожалению, мы не нашли такого города...')
+            return False
+        write_msg(user_id, 'Упс, что-то пошло не так...')
         return False
-    write_msg(user_id, 'Упс, что-то пошло не так...')
-    return False
+    except vk_api.exceptions.ApiError as e:
+        write_msg(user_id, f'''Извините, что-то пошло не так.''')
+        print(f'Error! {e}')
 
 
 def translate_field(field):
@@ -128,23 +116,27 @@ def get_age(date):
 
 def find_matches(user_info):
     """Takes user_info as a dictionary, returns other users infos as a list of dictionaries"""
-    url = 'https://api.vk.com/method/users.search'
-    params = {
-        'age_from': user_info['age'] - 3,
-        'age_to': user_info['age'] + 3,
-        'sex': 3 - user_info['sex'],
-        'city': user_info['city'],
-        'city_id': user_info['city'],
-        'status': 6,
-        'has_photo': 1,
-        'count': 1000,
-        'access_token': app_token,
-        'v': 5.131
-    }
-    if requests.get(url, params=params).json().get('response'):
-        return requests.get(url, params=params).json().get('response').get('items')
-    write_msg(user_info[id], 'Упс, что-то пошло не так')
-    return False
+    try:
+        response = vk_session2.method('users.search', {
+                                      'age_from': user_info['age'] - 3,
+                                      'age_to': user_info['age'] + 3,
+                                      'sex': 3 - user_info['sex'],
+                                      'city': user_info['city'],
+                                      'city_id': user_info['city'],
+                                      'status': 6,
+                                      'has_photo': 1,
+                                      'count': 1000,
+                                      'v': 5.131})
+        if response:
+            if response.get('items'):
+                return response.get('items')
+            write_msg(user_info['id'], 'Упс, что-то пошло не так')
+            return False
+        write_msg(user_info['id'], 'Упс, мы никого не нашли')
+        return False
+    except vk_api.exceptions.ApiError as e:
+        write_msg(user_info['id'], f'''Извините, что-то пошло не так.''')
+        print(f'Error! {e}')
 
 
 def choose_match(matches, user_id):
@@ -165,24 +157,23 @@ def choose_match(matches, user_id):
 
 def get_photos(user_id):
     """Takes user_id as an integer, returns 3 photos data as a dictionary"""
-    url = 'https://api.vk.com/method/photos.get'
-    params = {
-        'owner_id': user_id,
-        'album_id': 'profile',
-        'extended': '1',
-        'access_token': app_token,
-        'v': 5.131
-    }
-    response = requests.get(url, params=params).json().get('response')
-    if response:
-        if response.get('count') < 3:
-            return False
-        top_photos = sorted(response.get('items'), key=lambda x: x['likes']['count']
-                            + x['comments']['count'], reverse=True)[:3]
-        photo_data = {'user_id': top_photos[0]['owner_id'], 'photo_ids': []}
-        for photo in top_photos:
-            photo_data['photo_ids'].append(photo['id'])
-        return photo_data
+    try:
+        response = vk_session2.method('photos.get', {'owner_id': user_id,
+                                                     'album_id': 'profile',
+                                                     'extended': '1',
+                                                     'v': 5.131})
+        if response.get('count'):
+            if response.get('count') < 3:
+                return False
+            top_photos = sorted(response.get('items'), key=lambda x: x['likes']['count']
+                                + x['comments']['count'], reverse=True)[:3]
+            photo_data = {'user_id': top_photos[0]['owner_id'], 'photo_ids': []}
+            for photo in top_photos:
+                photo_data['photo_ids'].append(photo['id'])
+            return photo_data
+        return False
+    except vk_api.exceptions.ApiError as e:
+        print(f'Error! {e}')
 
 
 def main():
